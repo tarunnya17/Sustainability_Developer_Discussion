@@ -2,8 +2,8 @@
 
 ## What this stage does
 
-The goal is to **download every issue and pull request discussion from `huggingface/transformers`**
-and store it so that later we can:
+The goal is to **download the 10,000 newest issue and pull request discussions from `huggingface/transformers`
+(created before 2026-09-01)** and store them so that later we can:
 
 - rebuild any discussion **episode**: the opening post, all replies in time order, who took part, and how it ended
 - filter for sustainability-related discussions (keywords like *memory*, *energy*, *latency*, *FLOPs* …) **without downloading again**
@@ -42,7 +42,8 @@ There are two layers on purpose:
 │   └── show_episode.py      print one issue/PR as a timeline
 ├── docs/                    you are here
 └── data/                    (not in git; created when you run the collector)
-    ├── pilot/               small test run
+    ├── pilot/               first small test run (old version of the code)
+    ├── collect_10k.log      log of the dataset collection
     ├── raw/huggingface__transformers/
     └── tables/huggingface__transformers/
 ```
@@ -54,7 +55,8 @@ There are two layers on purpose:
 | Plan and data model research | done |
 | Collector code | done |
 | Smoke test (REST, no token) | done |
-| Pilot run with token (incl. GraphQL) | waiting for a GitHub token |
-| Full collection | not started |
+| Pilot run with token (incl. GraphQL) | done (`data/pilot/`) |
+| Selection "10,000 newest before 2026-09-01" + fixes for GitHub pagination limits | done |
+| 10k dataset collection (10,000 items, 102,783 comment rows) | done, verified |
 
 See [worklog.md](worklog.md) for details.

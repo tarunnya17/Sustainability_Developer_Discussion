@@ -1,17 +1,20 @@
 """
 Collect raw issue / pull request discussion data from one GitHub repository.
 
-Example (small test run, 2 pages per step):
-    python -m collector.collect --owner huggingface --repo transformers --max-pages 2 --out data/pilot
+Our dataset (the 10,000 newest issues+PRs created before 2026-09-01):
+    python -m collector.collect --max-items 10000 --until 2026-09-01
 
-Example (full run):
-    python -m collector.collect --owner huggingface --repo transformers
+Small test run (2 pages per step) into a separate folder:
+    python -m collector.collect --max-items 300 --until 2026-09-01 --max-pages 2 --out data/pilot2
+
+Everything (full history):
+    python -m collector.collect
 
 The script runs six steps. Each step saves the exact API responses as JSON Lines
 (one JSON object per line) in  <out>/raw/<owner>__<repo>/ :
 
     1. repo              -> repo.json                (repository metadata)
-    2. issues            -> issues.jsonl             (all issues AND pull requests)
+    2. issues            -> issues.jsonl             (the selected issues AND pull requests)
     3. issue_comments    -> issue_comments.jsonl     (main conversation comments)
     4. review_comments   -> review_comments.jsonl    (inline comments on PR code)
     5. pr_details        -> pr_details.jsonl         (merged?, size, reviews, linked issues; GraphQL)
@@ -25,6 +28,7 @@ continues where it left off.
 import argparse
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,14 +41,20 @@ ALL_STEPS = ["repo", "issues", "issue_comments", "review_comments", "pr_details"
 # Reviews fetched per PR inside the GraphQL query. PRs with more get step 6.
 REVIEWS_PER_PR = 50
 
+# Comment lists are read in "windows" of this many pages (100 comments each).
+# GitHub refuses to go deeper than page 300 on some list endpoints, and deep pages
+# are slow, so after WINDOW_PAGES pages we start a fresh query (see collect_comments).
+WINDOW_PAGES = 50
+
 PR_DETAILS_QUERY = """
 query($owner: String!, $repo: String!, $cursor: String, $pageSize: Int!) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(first: $pageSize, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+    pullRequests(first: $pageSize, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number
         databaseId
+        createdAt
         isDraft
         state
         merged
@@ -120,6 +130,12 @@ class Checkpoints:
         self.path.write_text(json.dumps(self.data, indent=2))
 
 
+def item_window(raw_dir):
+    """Oldest and newest created_at among the collected items (None if nothing collected yet)."""
+    dates = [item["created_at"] for item in read_jsonl(raw_dir / "issues.jsonl")]
+    return (min(dates), max(dates)) if dates else (None, None)
+
+
 # ----------------------------------------------------------------------
 # Steps
 # ----------------------------------------------------------------------
@@ -129,36 +145,114 @@ def collect_repo(client, owner, repo, raw_dir):
     print(f"[repo] saved metadata for {data['full_name']}")
 
 
-def collect_rest_list(client, step, start_url, params, out_file, checkpoints, max_pages):
-    """Generic loop for the REST list endpoints (steps 2, 3, 4)."""
+def collect_items(client, base, out_file, checkpoints, max_items, until, max_pages):
+    """
+    Step 2: list issues and PRs NEWEST FIRST, skip those created on/after `until`,
+    and stop after `max_items` (0 = no limit).
+
+    GitHub's "next" link for this endpoint contains a cursor (after=...), which is
+    the only way to go beyond page 99 here.
+    """
+    step = "issues"
     state = checkpoints.get(step)
     if state["done"]:
         print(f"[{step}] already complete, skipping")
         return
 
-    # Resume from the saved "next page" URL, or start from the beginning.
+    saved_ids = {item["id"] for item in read_jsonl(out_file)}  # items saved by earlier runs
     if state["next"]:
         url, params = state["next"], None
-        print(f"[{step}] resuming at page {state['pages'] + 1}")
+        print(f"[{step}] resuming with {len(saved_ids)} items already saved")
     else:
-        url = start_url
+        url, params = f"{base}/issues", {"state": "all", "sort": "created", "direction": "desc", "per_page": 100}
 
     pages_this_run = 0
     for items, next_url in client.get_pages(url, params):
-        append_jsonl(out_file, items)
+        keep = [i for i in items if (not until or i["created_at"] < until) and i["id"] not in saved_ids]
+        if max_items:
+            keep = keep[: max_items - len(saved_ids)]
+        append_jsonl(out_file, keep)
+        saved_ids.update(i["id"] for i in keep)
+
         state["pages"] += 1
         state["next"] = next_url
-        state["done"] = next_url is None
+        state["done"] = next_url is None or bool(max_items and len(saved_ids) >= max_items)
         checkpoints.save()  # save AFTER writing, so no page is ever skipped
         pages_this_run += 1
-        print(f"[{step}] page {state['pages']}: +{len(items)} records")
+        print(f"[{step}] page {state['pages']}: kept {len(keep)} of {len(items)}, total {len(saved_ids)}")
+        if state["done"]:
+            break
         if max_pages and pages_this_run >= max_pages:
             print(f"[{step}] stopped after {max_pages} pages (--max-pages)")
             break
 
 
-def collect_pr_details(client, owner, repo, out_file, checkpoints, max_pages, page_size=50):
-    """Step 5: one GraphQL query returns details for `page_size` pull requests."""
+def collect_comments(client, step, start_url, out_file, checkpoints, since, max_pages):
+    """
+    Steps 3 and 4: read a repository-wide comment list, oldest UPDATE first,
+    in windows of WINDOW_PAGES pages.
+
+    `since` = only comments updated at/after this time. Every comment on an item
+    created after `since` was also written (and so updated) after `since`, so we get
+    all comments of our selected items (plus some on older items, removed later).
+
+    Why windows? GitHub stops at page 300 for /issues/comments without saying so.
+    So after WINDOW_PAGES pages we start a fresh query with
+    since = updated_at of the last comment we saw. A window that ends by itself
+    (no next page) means we reached the newest comment.
+    """
+    state = checkpoints.get(step)
+    if state["done"]:
+        print(f"[{step}] already complete, skipping")
+        return
+    state.setdefault("since", since)
+    state.setdefault("window", 1)
+    state.setdefault("window_pages", 0)
+
+    pages_this_run = 0
+    while not state["done"]:
+        if state["next"]:
+            url, params = state["next"], None
+        else:
+            url, params = start_url, {"sort": "updated", "direction": "asc", "per_page": 100}
+            if state["since"]:
+                params["since"] = state["since"]
+
+        for records, next_url in client.get_pages(url, params):
+            append_jsonl(out_file, records)
+            state["pages"] += 1
+            state["window_pages"] += 1
+            if records:
+                state["last_updated"] = records[-1]["updated_at"]
+            print(f"[{step}] window {state['window']}, page {state['window_pages']}: "
+                  f"+{len(records)} (up to {state.get('last_updated')})")
+
+            if next_url is None:
+                state["done"], state["next"] = True, None
+            elif state["window_pages"] >= WINDOW_PAGES:
+                if state["last_updated"] == state["since"]:
+                    raise RuntimeError(f"[{step}] window did not move forward; stopping to avoid a loop")
+                # start a new window from the last comment we saw
+                state["since"], state["next"] = state["last_updated"], None
+                state["window"] += 1
+                state["window_pages"] = 0
+            else:
+                state["next"] = next_url
+            checkpoints.save()
+
+            pages_this_run += 1
+            if max_pages and pages_this_run >= max_pages:
+                print(f"[{step}] stopped after {max_pages} pages (--max-pages)")
+                return
+            if state["done"] or state["next"] is None:
+                break  # finished, or time for a new window
+
+
+def collect_pr_details(client, owner, repo, out_file, checkpoints, max_pages, until, window_start, page_size=50):
+    """
+    Step 5: one GraphQL query returns details for `page_size` pull requests, NEWEST FIRST.
+    Only PRs created inside the item window [window_start, until) are kept.
+    """
     step = "pr_details"
     state = checkpoints.get(step)
     if state["done"]:
@@ -169,13 +263,19 @@ def collect_pr_details(client, owner, repo, out_file, checkpoints, max_pages, pa
     while True:
         variables = {"owner": owner, "repo": repo, "cursor": state["next"], "pageSize": page_size}
         connection = client.graphql(PR_DETAILS_QUERY, variables)["repository"]["pullRequests"]
-        append_jsonl(out_file, connection["nodes"])
+        nodes = connection["nodes"]
+        keep = [pr for pr in nodes
+                if (not until or pr["createdAt"] < until)
+                and (not window_start or pr["createdAt"] >= window_start)]
+        append_jsonl(out_file, keep)
+
+        passed_window = bool(window_start and nodes and nodes[-1]["createdAt"] < window_start)
         state["pages"] += 1
         state["next"] = connection["pageInfo"]["endCursor"]
-        state["done"] = not connection["pageInfo"]["hasNextPage"]
+        state["done"] = not connection["pageInfo"]["hasNextPage"] or passed_window
         checkpoints.save()
         pages_this_run += 1
-        print(f"[{step}] page {state['pages']}: +{len(connection['nodes'])} pull requests")
+        print(f"[{step}] page {state['pages']}: kept {len(keep)} of {len(nodes)} pull requests")
         if state["done"] or (max_pages and pages_this_run >= max_pages):
             break
 
@@ -222,6 +322,13 @@ def write_manifest(raw_dir, args, started_at, checkpoints):
     path = raw_dir / "manifest.json"
     manifest = json.loads(path.read_text()) if path.exists() else {"runs": []}
     manifest["repository"] = f"{args.owner}/{args.repo}"
+    window_start, window_end = item_window(raw_dir)
+    manifest["selection"] = {
+        **checkpoints.data.get("selection", {}),
+        "items_collected": len({i["id"] for i in read_jsonl(raw_dir / "issues.jsonl")}),
+        "oldest_item_created_at": window_start,
+        "newest_item_created_at": window_end,
+    }
     manifest["runs"].append({
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -235,7 +342,22 @@ def write_manifest(raw_dir, args, started_at, checkpoints):
     manifest["steps_complete"] = {step: checkpoints.get(step)["done"] for step in ALL_STEPS if step != "repo"}
     path.write_text(json.dumps(manifest, indent=2))
     print(f"\nManifest written to {path}")
+    print(json.dumps(manifest["selection"], indent=2))
     print(json.dumps(manifest["record_counts"], indent=2))
+
+
+def check_selection(checkpoints, selection):
+    """Refuse to mix two different datasets in one output folder."""
+    if not checkpoints.data:
+        checkpoints.data["selection"] = selection
+        checkpoints.save()
+    elif checkpoints.data.get("selection") != selection:
+        sys.exit(
+            f"This output folder was collected with different settings:\n"
+            f"  saved:   {checkpoints.data.get('selection')}\n"
+            f"  current: {selection}\n"
+            f"Use a different --out folder (or delete the old one to start over)."
+        )
 
 
 # ----------------------------------------------------------------------
@@ -244,12 +366,17 @@ def main():
     parser.add_argument("--owner", default="huggingface")
     parser.add_argument("--repo", default="transformers")
     parser.add_argument("--out", default="data", help="output folder (default: data)")
+    parser.add_argument("--max-items", type=int, default=0,
+                        help="keep only the N newest issues+PRs (0 = all)")
+    parser.add_argument("--until", default=None,
+                        help="only items created before this date, e.g. 2026-09-01")
     parser.add_argument("--max-pages", type=int, default=0,
                         help="stop each step after this many pages (for test runs; 0 = no limit)")
     parser.add_argument("--steps", default=",".join(ALL_STEPS),
                         help="comma-separated subset of: " + ",".join(ALL_STEPS))
     args = parser.parse_args()
     args.steps = [s.strip() for s in args.steps.split(",")]
+    until = f"{args.until}T00:00:00Z" if args.until else None
 
     load_dotenv()  # reads GITHUB_TOKEN from the .env file
     client = GitHubClient()
@@ -259,25 +386,31 @@ def main():
     raw_dir = Path(args.out) / "raw" / f"{args.owner}__{args.repo}"
     raw_dir.mkdir(parents=True, exist_ok=True)
     checkpoints = Checkpoints(raw_dir / "_checkpoints.json")
+    check_selection(checkpoints, {"max_items": args.max_items, "until": until, "order": "newest_first"})
     started_at = datetime.now(timezone.utc).isoformat()
     base = f"/repos/{args.owner}/{args.repo}"
-    oldest_first = {"per_page": 100, "sort": "created", "direction": "asc"}
 
     try:
         if "repo" in args.steps:
             collect_repo(client, args.owner, args.repo, raw_dir)
         if "issues" in args.steps:
-            collect_rest_list(client, "issues", f"{base}/issues", {**oldest_first, "state": "all"},
-                              raw_dir / "issues.jsonl", checkpoints, args.max_pages)
+            collect_items(client, base, raw_dir / "issues.jsonl", checkpoints,
+                          args.max_items, until, args.max_pages)
+
+        # The comment and PR steps only need the time window of the selected items.
+        window_start = item_window(raw_dir)[0] if args.max_items else None
+        if args.max_items and not checkpoints.get("issues")["done"]:
+            print("WARNING: the issues step is not complete, so the item window is not final yet.")
+
         if "issue_comments" in args.steps:
-            collect_rest_list(client, "issue_comments", f"{base}/issues/comments", oldest_first,
-                              raw_dir / "issue_comments.jsonl", checkpoints, args.max_pages)
+            collect_comments(client, "issue_comments", f"{base}/issues/comments",
+                             raw_dir / "issue_comments.jsonl", checkpoints, window_start, args.max_pages)
         if "review_comments" in args.steps:
-            collect_rest_list(client, "review_comments", f"{base}/pulls/comments", oldest_first,
-                              raw_dir / "review_comments.jsonl", checkpoints, args.max_pages)
+            collect_comments(client, "review_comments", f"{base}/pulls/comments",
+                             raw_dir / "review_comments.jsonl", checkpoints, window_start, args.max_pages)
         if "pr_details" in args.steps:
             collect_pr_details(client, args.owner, args.repo, raw_dir / "pr_details.jsonl",
-                               checkpoints, args.max_pages)
+                               checkpoints, args.max_pages, until, window_start)
         if "pr_reviews_extra" in args.steps:
             collect_pr_reviews_extra(client, args.owner, args.repo, raw_dir, checkpoints)
     finally:

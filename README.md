@@ -8,8 +8,9 @@ cost, maintainability, development effort).
 - **RQ2:** How do developers justify prioritizing sustainability or competing goals?
 - **RQ3:** How are disagreements about sustainability-related trade-offs discussed and resolved?
 
-**Current stage:** raw data collection from `huggingface/transformers`, covering the full issue and PR
-history. Preprocessing, filtering, analysis, DeepSpeed and Megatron-LM come later.
+**Current stage:** raw data collection. The dataset holds the **10,000 newest issues and PRs of
+`huggingface/transformers` created before 2026-09-01**, with all their comments and reviews. Preprocessing,
+filtering, analysis, DeepSpeed and Megatron-LM come later.
 
 ## Quickstart
 
@@ -19,12 +20,12 @@ history. Preprocessing, filtering, analysis, DeepSpeed and Megatron-LM come late
 cp .env.example .env          # then paste your GitHub token into .env
 source .venv/bin/activate
 
-# 2. small test run (a few minutes)
-python -m collector.collect --max-pages 2 --out data/pilot
-python -m collector.build_tables --out data/pilot
+# 2. small test run (1-2 minutes)
+python -m collector.collect --max-items 300 --until 2026-09-01 --out data/test300
+python -m collector.build_tables --out data/test300
 
-# 3. full collection (a few hours; safe to stop and restart)
-python -m collector.collect
+# 3. the dataset: 10,000 newest items before 2026-09-01 (~40 min; safe to stop and restart)
+python -m collector.collect --max-items 10000 --until 2026-09-01
 python -m collector.build_tables
 
 # 4. look at one discussion

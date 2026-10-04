@@ -248,9 +248,19 @@ def main():
 
     repository = build_repository(raw_dir)
     repo_name = repository.loc[0, "repo_name"]
+
+    # The comment lists also contain comments on OLDER items that were active
+    # recently. Keep only what belongs to the selected items (raw files keep everything).
+    numbers = {item["number"] for item in issues}
+    pr_details = [pr for pr in pr_details if pr["number"] in numbers]
+    extra_reviews = [r for r in extra_reviews if r["_pr_number"] in numbers]
+
     links = build_links(pr_details, repository.loc[0, "repo_full_name"])
     items = build_items(issues, pr_details, links, repo_name)
     comments = build_comments(issue_comments, review_comments, pr_details, extra_reviews, repo_name)
+    outside = ~comments["item_number"].isin(numbers)
+    print(f"dropped {outside.sum()} comments that belong to items outside the selection")
+    comments = comments[~outside]
 
     for name, df in [("repository", repository), ("items", items), ("comments", comments), ("links", links)]:
         df.to_csv(table_dir / f"{name}.csv", index=False)

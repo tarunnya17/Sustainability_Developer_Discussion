@@ -1,13 +1,125 @@
 # 05 · Sample data
 
-All examples below are **real data** from `huggingface/transformers`, collected by the smoke test on
-2026-09-30. The PR-details part (merged, additions, reviews) needs a token and will be added after
-the pilot run.
+All examples are **real data** from the 10k dataset (collected 2026-10-04), in
+`data/tables/huggingface__transformers/`.
+
+## Dataset at a glance
+
+| | |
+|---|---|
+| Items | **10,000**: 7,837 pull requests + 2,163 issues |
+| Created between | 2025-05-21 and 2026-08-31 |
+| Comment rows (`comments.csv`) | **102,783**: 39,268 main-thread comments, 24,949 reviews, 38,566 inline review comments |
+| PR outcomes | 4,764 merged · `review_decision`: 4,195 APPROVED, 3,565 REVIEW_REQUIRED, 18 CHANGES_REQUESTED |
+| Issue outcomes (`state_reason`) | 1,902 completed · 103 not_planned · 6 duplicate · 147 still open |
+| Review verdicts | 19,189 COMMENTED · 5,663 APPROVED · 79 CHANGES_REQUESTED · 18 DISMISSED |
+| PR → issue links (`links.csv`) | 1,619 |
+| Rows written by bot accounts | 11,652 (only the ones GitHub marks as bots, see below) |
+| Median participants per discussion | 3 |
+| Size on disk | raw 672 MB · tables 65 MB |
+
+## A reconstructed episode (`python -m collector.show_episode 48341`)
+
+This is a **resource-related** PR (memory exhaustion when loading large models on Windows). Long bot
+messages are shortened here with `[...]`.
+
+```
+#48341 [pull_request] Fix `safe_open` mmap memory exhaustion on Windows by using `pread` backend
+https://github.com/huggingface/transformers/pull/48341
+opened by eryk-roch (CONTRIBUTOR) at 2026-08-26T13:07:17Z
+--------------------------------------------------------------------------------
+2026-08-26T13:48:51Z  kaixuanliu (CONTRIBUTOR)  [review verdict=COMMENTED]
+2026-08-26T13:48:51Z  kaixuanliu (CONTRIBUTOR)  [review_comment on src/transformers/modeling_layers.py:610]
+Better to put this line before the loop
+2026-08-26T13:54:02Z  kaixuanliu (CONTRIBUTOR)  [review_comment on tests/utils/test_modeling_utils.py:3833]
+Here patch("transformers.modeling_utils.sys.platform", "win32") to patch only the attribute should be better IMO, ...
+2026-08-26T13:54:39Z  kaixuanliu (CONTRIBUTOR)  [issue_comment]
+Basically LGTM. Just 2 small nits above.
+2026-08-26T14:00:59Z  SunMarc (MEMBER)  [review_comment on tests/utils/test_modeling_utils.py:3831]
+it's fine to not have test for windows as we don't test on it.
+2026-08-26T14:04:25Z  SunMarc (MEMBER)  [review_comment on src/transformers/modeling_layers.py:611]
+we should also do the fix for mps
+2026-08-26T14:04:32Z  SunMarc (MEMBER)  [review verdict=COMMENTED]
+Thanks, just a nit
+2026-08-26T18:36:01Z  github-actions[bot] (CONTRIBUTOR)  [issue_comment]
+## CI Security Gate — automatic approval blocked [...]
+2026-08-26T18:38:00Z  eryk-roch (CONTRIBUTOR)  [issue_comment]
+Addressed all review comments:
+- Hoisted `backend` selection before the loop in `modeling_layers.py`
+- Added MPS handling to `MtpModel` loading path (matching `modeling_utils.py` pattern)
+- Removed Windows-specific tests per @SunMarc, kept Linux backend test with targeted `sys.platform` patch per [...]
+2026-08-26T19:22:07Z  matthewdouglas (MEMBER)  [review verdict=APPROVED]
+2026-08-26T20:13:16Z  SunMarc (MEMBER)  [review_comment on tests/utils/test_modeling_utils.py:3826]
+It's fine we can remove this test also
+2026-08-27T01:15:09Z  kaixuanliu (CONTRIBUTOR)  [review verdict=APPROVED]
+2026-08-27T09:24:30Z  eryk-roch (CONTRIBUTOR)  [issue_comment]
+@SunMarc  Removed the last test as suggested ... Could you or @matthewdouglas merge this when ready? I don't have write access to the repo.
+2026-08-27T09:32:21Z  github-actions[bot] (CONTRIBUTOR)  [issue_comment]
+### CI recap [...]
+2026-08-27T12:52:40Z  HuggingFaceDocBuilderDev (NONE)  [issue_comment]
+The docs for this PR live [here](...). [...]
+================================================================================
+participants (6): HuggingFaceDocBuilderDev, SunMarc, eryk-roch, github-actions[bot], kaixuanliu, matthewdouglas
+comments: 17  ->  {'review': 6, 'issue_comment': 6, 'review_comment': 5}
+outcome: state=closed, merged=True, review_decision=APPROVED, closes issues: 48285, closed_at=2026-08-27T13:00:11Z, closed_by=SunMarc
+```
+
+This one episode shows everything the RQs need:
+- **Trade-off topic:** a memory/resource problem (RQ1).
+- **Justification:** "it's fine to not have test for windows as we don't test on it" weighs test
+  effort against coverage (RQ2).
+- **Negotiation and resolution:** a reviewer suggests something, the author makes the change, and a
+  maintainer approves and merges it (RQ3).
+- **Roles:** `MEMBER` (Hugging Face staff) vs. `CONTRIBUTOR` (outside contributor without write access).
+
+## The same PR as a row of `items.csv`
+
+| Column | Value |
+|---|---|
+| item_number | 48341 |
+| item_type | pull_request |
+| title | Fix `safe_open` mmap memory exhaustion on Windows by using `pread` backend |
+| author / author_association | eryk-roch / CONTRIBUTOR |
+| state | closed |
+| created_at → closed_at | 2026-08-26T13:07:17Z → 2026-08-27T13:00:11Z |
+| closed_by | SunMarc |
+| is_draft | False |
+| merged / merged_at / merged_by | True / 2026-08-27T13:00:11Z / SunMarc |
+| merge_commit_sha | 8631167e310d56baa87f5213f524fdb5f47c4ff9 |
+| commits / changed_files / additions / deletions | 3 / 2 / 15 / 2 |
+| review_decision | APPROVED |
+| base_ref → head_ref | main ← fix-windows-mmap-pread |
+| linked_issue_numbers | 48285 |
+
+## Its `review` rows in `comments.csv`
+
+| comment_id | author | author_association | review_state | created_at | body |
+|---|---|---|---|---|---|
+| 5031188625 | kaixuanliu | CONTRIBUTOR | COMMENTED | 2026-08-26T13:48:51Z | *(empty; envelope for an inline comment)* |
+| 5031325647 | SunMarc | MEMBER | COMMENTED | 2026-08-26T14:04:32Z | Thanks, just a nit |
+| 5034269438 | matthewdouglas | MEMBER | **APPROVED** | 2026-08-26T19:22:07Z | |
+| 5036408342 | kaixuanliu | CONTRIBUTOR | **APPROVED** | 2026-08-27T01:15:09Z | |
+
+## The issue it closes (`links.csv` and the issue row)
+
+`links.csv`:
+
+| pr_number | issue_number | issue_repo | same_repo | link_type |
+|---|---|---|---|---|
+| 48341 | 48285 | huggingface/transformers | True | closes |
+
+Issue #48285 in `items.csv`:
+- title: "`from_pretrained` with safetensors mmap crashes on Windows for large multi-shard checkpoints (copy-on-write commit charge exhausts memory)"
+- state: closed, with state_reason `completed`
+- closed_by: SunMarc
+- linked_pr_numbers: `48341`
+
+So the **issue → PR → merge** story can be followed in both directions.
 
 ## A raw record (`review_comments.jsonl`, shortened)
 
-Each line in a `.jsonl` file is one JSON object, exactly as GitHub returned it (~25 fields; the
-important ones are shown here):
+Each line in a `.jsonl` file is one JSON object, exactly as GitHub returned it (~25 fields). This
+one comes from an early test run (PR #32 from 2018):
 
 ```json
 {
@@ -18,61 +130,23 @@ important ones are shown here):
   "author_association": "NONE",
   "created_at": "2018-11-19T09:17:01Z",
   "body": "I think `all(nd not in n for nd in no_decay)` would be clearer",
-  "diff_hunk": "@@ -503,8 +503,8 @@ def main():\n         param_optimizer = list(model.named_parameters())\n     no_decay = ['bias', 'gamma', 'beta']\n ..."
+  "diff_hunk": "@@ -503,8 +503,8 @@ def main():\n         param_optimizer = list(model.named_parameters())\n ..."
 }
 ```
 
-`diff_hunk` (the code being discussed) is kept only in the raw file. It is too long for the CSV but
-useful for later qualitative reading.
+`diff_hunk` (the code being discussed) is kept only in the raw files.
 
-## A row of `items.csv` (issue #5)
+## Things the preprocessing stage should handle (noticed in the data)
 
-| Column | Value |
-|---|---|
-| item_number | 5 |
-| item_id | 377698378 |
-| item_type | issue |
-| title | MRPC hyperparameters question |
-| body | When describing how you reproduced the MRPC results, you say: "Our test ran on a few seeds with the original implementation hyper-parameters gave evaluation results between 82 and 87." … |
-| author | ethanjperez |
-| author_association | CONTRIBUTOR |
-| state / state_reason | closed / completed |
-| comments_count | 5 |
-| created_at | 2018-11-06T05:30:36Z |
-| closed_at / closed_by | 2018-11-07T23:42:51Z / thomwolf |
-| url | https://github.com/huggingface/transformers/issues/5 |
-
-## A reconstructed episode (`python -m collector.show_episode 32`)
-
-```
-================================================================================
-#32 [pull_request] Fix ineffective no_decay bug when using BERTAdam
-https://github.com/huggingface/transformers/pull/32
-opened by xiaoda99 (CONTRIBUTOR) at 2018-11-18T08:21:37Z
-labels: -
---------------------------------------------------------------------------------
-With the original code, all parameters are decayed because the condition "parameter_name in no_decay" will never be satisfied.
---------------------------------------------------------------------------------
-2018-11-19T09:17:01Z  artemisart (NONE)  [review_comment on examples/run_classifier.py:506]
-I think `all(nd not in n for nd in no_decay)` would be clearer
---------------------------------------------------------------------------------
-2018-11-20T09:11:51Z  thomwolf (MEMBER)  [issue_comment]
-thanks!
-================================================================================
-participants (3): artemisart, thomwolf, xiaoda99
-comments: 2  ->  {'review_comment': 1, 'issue_comment': 1}
-outcome: state=closed, merged=nan, review_decision=nan, closed_at=2018-11-20T09:11:47Z, closed_by=thomwolf
-```
-
-This small example already has the full shape of an episode:
-- a **description** (the bug)
-- an **inline code suggestion** from an outside user (`NONE`) about *maintainability/readability*
-- a **maintainer response** (`MEMBER`)
-- an **outcome** (closed by the maintainer)
-
-`merged=nan` appears only because the smoke test had no token, so the PR details step (GraphQL) did not run.
-
-## Coming after the pilot run
-- PR row with `merged`, `additions`, `deletions`, `review_decision`
-- `review` rows with verdicts (`APPROVED` / `CHANGES_REQUESTED`)
-- a `links.csv` example (PR closes issue)
+- **Bots.** `github-actions[bot]` is flagged as a bot. `HuggingFaceDocBuilderDev` is a normal
+  account (`author_is_bot = False`, association `NONE`) that posts automated doc-preview messages,
+  so it needs a manual bot list.
+- **Machine-generated text inside human posts.** Many PR descriptions start with a CI badge block
+  (`<!-- ci-dashboard-badge:start --> ...`). PR templates and HTML comments should be stripped
+  before keyword filtering.
+- **Empty review bodies.** Most `COMMENTED` reviews have no text. Their content is in the
+  `review_comment` rows that share their `review_id`.
+- **`comments_count` vs. collected comments.** For 9,967 of 10,000 items they match exactly. In 27
+  items GitHub's counter is higher by one, but GitHub's own per-item comment API returns exactly
+  the comments we have (the counter includes deleted or hidden comments). In 6 items we have
+  more, because comments were added after the item list was saved.

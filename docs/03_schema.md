@@ -106,6 +106,10 @@ time order. `comment_kind` tells you which kind a row is (see [01_collection_pla
 | file_path, line | code location being discussed | review_comment | `examples/run_classifier.py`, `506` |
 
 Notes:
+- **Selection:** only comments on the 10,000 selected items are in this table. The raw files also
+  contain comments on older items that were active during the window, and `build_tables.py` drops those.
+- Comments can be **newer than the cutoff** (2026-09-01). An August issue may have replies from
+  September. They are kept, because the discussion is captured as it was on the collection day.
 - Main-thread (`issue_comment`) replies are **not** linked by GitHub. People reply by quoting
   (`> text`) or mentioning (`@user`). This can be detected from the text later.
 - Many `review` rows have an **empty body** with state `COMMENTED`. They are the "envelope" around
