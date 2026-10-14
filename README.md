@@ -8,9 +8,10 @@ cost, maintainability, development effort).
 - **RQ2:** How do developers justify prioritizing sustainability or competing goals?
 - **RQ3:** How are disagreements about sustainability-related trade-offs discussed and resolved?
 
-**Current stage:** raw data collection. The dataset holds the **10,000 newest issues and PRs of
-`huggingface/transformers` created before 2026-09-01**, with all their comments and reviews. Preprocessing,
-filtering, analysis, DeepSpeed and Megatron-LM come later.
+**Current stage:** keyword filtering. The dataset holds the **10,000 newest issues and PRs of
+`huggingface/transformers` created before 2026-09-01**, with all their comments and reviews. A keyword
+filter selected **998 sustainability-related discussions** (99 of them with an explicit trade-off); see
+[docs/06_filtering.md](docs/06_filtering.md). Manual validation, analysis, DeepSpeed and Megatron-LM come later.
 
 ## Quickstart
 
@@ -30,6 +31,9 @@ python -m collector.build_tables
 
 # 4. look at one discussion
 python -m collector.show_episode 1234
+
+# 5. keyword filter for sustainability-related discussions (~25 s)
+python -m filtering.filter_discussions
 ```
 
 ## Documentation
@@ -42,4 +46,5 @@ python -m collector.show_episode 1234
 | [docs/03_schema.md](docs/03_schema.md) | Every table and column |
 | [docs/04_running.md](docs/04_running.md) | How to run, resume, check the collection |
 | [docs/05_sample_data.md](docs/05_sample_data.md) | Real sample rows and a reconstructed discussion |
+| [docs/06_filtering.md](docs/06_filtering.md) | Sustainability keywords, text cleaning, selection tiers, outputs |
 | [docs/worklog.md](docs/worklog.md) | Dated log of what was done |

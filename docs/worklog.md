@@ -89,3 +89,41 @@
 - Preprocessing: bot list (e.g. `HuggingFaceDocBuilderDev`), strip CI badges and templates from bodies.
 - Sustainability keyword filtering, then qualitative analysis.
 - Same collection for DeepSpeed and Megatron-LM.
+
+## 2026-10-06: keyword filter for sustainability-related discussions
+
+**Request:** settle on a list of sustainability keywords (a ChatGPT list was given as input), explain the keyword
+processing, and filter the 10k dataset. Details: [06_filtering.md](06_filtering.md).
+
+**Probing first (read-only)**
+- Most bodies contain the PR template. Before cleaning, *quantiz* matched 1,793 items, mostly through
+  `- quantization: @SunMarc`. So cleaning (templates, code, quotes, badges) has to come before matching.
+- Explicit environmental words are almost absent after cleaning (sustainab* 3 items, climate/carbon/CO2 0).
+  The filter therefore relies on resource proxies (compute, memory, speed).
+- Generic words from the ChatGPT list match far too much (*but* 4,405 items, *instead* 2,129, *however* 880),
+  so they were dropped. Bare *power*, *runtime* and *waste* were dropped after reading snippets.
+
+**Decisions**
+- 8 groups (A explicit, B compute, C memory, D speed, E techniques, F accuracy, G maintainability/effort,
+  H trade-off language), each with strong and weak terms. No automatic stemming: hand-written regex stems, separator
+  variants, NFKC + lowercase.
+- Boilerplate = any line that appears in ≥ 20 different texts (603 lines), found from the data and not listed by hand.
+- Maintainability-only discussions go in a **separate `technical` tier** (user's choice), not dropped and not merged.
+- Changed during the run: group E (quantization, LoRA, flash attention …) no longer counts toward the
+  `resource_weak` rule. All 10 sampled items that qualified only through E were ordinary bug reports or feature
+  PRs (218 → 72 items).
+- `HuggingFaceDocBuilderDev` is treated as a bot (5,202 identical comments, not flagged by GitHub).
+
+**Code:** `filtering/keywords.py`, `filtering/clean_text.py`, `filtering/filter_discussions.py`.
+
+**Result** (`data/filtered/huggingface__transformers/`, ~25 s):
+- 998 of 10,000 items are candidates: `tradeoff` 99 · `resource` 685 · `resource_weak` 72 · `technical` 142
+  (703 PRs, 295 issues). `explicit_green` (strong group-A term): 7.
+- Checks: no hit snippet contains template text (`@sunmarc`, `who can review`, CI badges, `list any dependencies`).
+  There are no hits from bot accounts. Random snippets were read for 18 strong terms. `show_episode 40073` is a clear trade-off
+  discussion (maintainer: dense MoE is "the most efficient way to compute this"; reporter: "bandwidth/compute/latency tradeoff").
+
+**Next**
+- Label `review_sample.csv` (25 per tier + 50 non-candidates) → precision per tier and an estimate of missed
+  discussions. Tune `keywords.py` if needed.
+- Qualitative coding of the `tradeoff` tier (RQ1–3).

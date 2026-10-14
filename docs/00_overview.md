@@ -8,7 +8,8 @@ The goal is to **download the 10,000 newest issue and pull request discussions f
 - rebuild any discussion **episode**: the opening post, all replies in time order, who took part, and how it ended
 - filter for sustainability-related discussions (keywords like *memory*, *energy*, *latency*, *FLOPs* …) **without downloading again**
 
-This stage does **no** cleaning, no filtering and no analysis. It only collects and stores.
+The collection stage does no cleaning, no filtering and no analysis. It only collects and stores.
+The filtering stage ([06_filtering.md](06_filtering.md)) reads the tables and writes `data/filtered/`.
 
 ## The pipeline in one picture
 
@@ -20,6 +21,10 @@ GitHub API ──► collector/collect.py ──► data/raw/huggingface__transf
                                               │
                                               ▼
                      collector/show_episode.py  (print one discussion to check it)
+                                              │
+                                              ▼
+                     filtering/filter_discussions.py ──► data/filtered/huggingface__transformers/*.csv
+                                                         (keyword hits, tiers, candidate discussions)
 ```
 
 There are two layers on purpose:
@@ -40,12 +45,17 @@ There are two layers on purpose:
 │   ├── collect.py           the 6 collection steps + checkpoints + manifest
 │   ├── build_tables.py      raw JSONL -> CSV tables
 │   └── show_episode.py      print one issue/PR as a timeline
+├── filtering/
+│   ├── keywords.py          the sustainability keyword list (edit this to tune)
+│   ├── clean_text.py        strip templates, code, quotes, badges before matching
+│   └── filter_discussions.py  match, score, assign tiers, write data/filtered/
 ├── docs/                    you are here
 └── data/                    (not in git; created when you run the collector)
     ├── pilot/               first small test run (old version of the code)
     ├── collect_10k.log      log of the dataset collection
     ├── raw/huggingface__transformers/
-    └── tables/huggingface__transformers/
+    ├── tables/huggingface__transformers/
+    └── filtered/huggingface__transformers/
 ```
 
 ## Status
@@ -58,5 +68,6 @@ There are two layers on purpose:
 | Pilot run with token (incl. GraphQL) | done (`data/pilot/`) |
 | Selection "10,000 newest before 2026-09-01" + fixes for GitHub pagination limits | done |
 | 10k dataset collection (10,000 items, 102,783 comment rows) | done, verified |
+| Keyword filter (998 candidate discussions, 99 in the `tradeoff` tier) | done; manual validation pending |
 
 See [worklog.md](worklog.md) for details.
