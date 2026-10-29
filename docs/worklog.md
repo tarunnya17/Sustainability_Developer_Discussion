@@ -127,3 +127,39 @@ processing, and filter the 10k dataset. Details: [06_filtering.md](06_filtering.
 - Label `review_sample.csv` (25 per tier + 50 non-candidates) → precision per tier and an estimate of missed
   discussions. Tune `keywords.py` if needed.
 - Qualitative coding of the `tradeoff` tier (RQ1–3).
+
+## 2026-10-20: topic modeling (BERTopic) on keyword-hit passages
+
+**Request:** an initial topic model with BERTopic on the keyword-hit data. Planned first, then built. Details: [07_topics.md](07_topics.md).
+
+**Decisions (with the user)**
+- Unit: a **paragraph with a keyword hit** (any hit, ≥ 8 words) from the 998 candidates: 3,789 passages, 980 items.
+  Whole episodes are too long for the embedding model, and single comments are too short (49 % under 10 words).
+- All four tiers are kept, with tier as a column. Clustering: HDBSCAN. Outliers stay `-1`, and are also assigned to the
+  nearest topic in `topic_assigned` for the prevalence tables.
+- Topic words are computed with the matched concern phrases (groups A–D, F–H) cut out. Otherwise they repeat the filter
+  (seen in an NMF pilot). Techniques (E), *kv cache*, *offload* and *logits* stay as context. Changed from the plan
+  (stop list built from hit tokens): cutting only the matched phrase keeps *gpu* and *training* elsewhere in the text.
+- Run on the **GPU** (user's request). Only the embedding model uses it.
+
+**Code:** `topics/vocabulary.py`, `topics/passages.py`, `topics/model_topics.py`, `requirements-topics.txt`.
+The cleaning of `filter_discussions.main()` moved into `build_texts()`, shared with `topics/`. Re-running the filter
+gives byte-identical outputs (`diff -r`).
+
+**Environment problems**
+- The home quota was full, so installing torch failed. The environment and caches now live on `/u2/users/scb052/`
+  (see [07_topics.md](07_topics.md) §0). 12 `.tmp*` folders from the failed install are still in `~/.cache/uv`.
+- PyPI torch 2.14.1 is the CUDA 13 build and cannot see the GPUs with driver 565, so the `+cu126` build is installed.
+- First run stalled for 15+ min: numba's OpenMP layer (UMAP) clashed with torch's threads, and each small torch call got
+  ~185× slower. Fixed with `NUMBA_THREADING_LAYER=workqueue`.
+
+**Result** (`data/topics/huggingface__transformers/`, ~3 min with `--stability`)
+- 58 topics, 35 % outliers. Topic words are free of concern keywords. Themes: KV cache, fp8/quantization,
+  offloading, CUDA graphs, torch.compile, CI runner RAM, flash attention/SDPA, code agents / AI PRs …
+- Stability: ARI 0.59 across UMAP seeds (0.88 on passages clustered in both runs); CPU vs. GPU embeddings 0.60.
+  Themes are stable, exact boundaries are not.
+- Masked keywords: ARI 0.27 to the main run. Natural-text topics partly split areas by concern (memory vs. speed).
+- A second run is identical (cached embeddings + fixed seed).
+
+**Next**
+- Label `review_sample.csv` (filter) and `topic_labels.csv` (topics). Sample episodes per topic for coding.

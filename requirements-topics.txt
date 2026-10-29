@@ -1,0 +1,17 @@
+# Extra packages for the topic modeling stage (topics/, docs/07_topics.md), on top of requirements.txt.
+# Kept separate because torch is several GB. Versions are the ones the results were produced with.
+#
+# GPU: torch from PyPI is the CUDA 13 build (2.14.1+cu130), which needs NVIDIA driver >= 580. Our server
+# has driver 565 (CUDA 12.x), so install the CUDA 12.6 build FIRST, then this file (2.14.1+cu126 satisfies
+# "torch==2.14.1", so it is kept):
+#   uv pip install -p <venv> "torch==2.14.1+cu126" --index-url https://download.pytorch.org/whl/cu126
+#   uv pip install -p <venv> -r requirements.txt -r requirements-topics.txt
+# Without a GPU, the second command alone is enough (it then runs on CPU, ~5 min instead of ~3).
+bertopic==0.17.4
+sentence-transformers==6.1.0
+transformers==5.20.2
+umap-learn==0.5.12
+hdbscan==0.8.44
+scikit-learn==1.9.1
+plotly==7.1.0
+torch==2.14.1

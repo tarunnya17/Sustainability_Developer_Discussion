@@ -11,7 +11,8 @@ cost, maintainability, development effort).
 **Current stage:** keyword filtering. The dataset holds the **10,000 newest issues and PRs of
 `huggingface/transformers` created before 2026-09-01**, with all their comments and reviews. A keyword
 filter selected **998 sustainability-related discussions** (99 of them with an explicit trade-off); see
-[docs/06_filtering.md](docs/06_filtering.md). Manual validation, analysis, DeepSpeed and Megatron-LM come later.
+[docs/06_filtering.md](docs/06_filtering.md). A first BERTopic model groups their keyword-hit passages into 58
+topics (provisional; see [docs/07_topics.md](docs/07_topics.md)). Manual validation, analysis, DeepSpeed and Megatron-LM come later.
 
 ## Quickstart
 
@@ -34,6 +35,10 @@ python -m collector.show_episode 1234
 
 # 5. keyword filter for sustainability-related discussions (~25 s)
 python -m filtering.filter_discussions
+
+# 6. topic modeling (BERTopic) on the keyword-hit passages (~3 min, embeddings on the GPU;
+#    separate environment with extra packages, see docs/07_topics.md §0)
+python -m topics.model_topics --stability
 ```
 
 ## Documentation
@@ -47,4 +52,5 @@ python -m filtering.filter_discussions
 | [docs/04_running.md](docs/04_running.md) | How to run, resume, check the collection |
 | [docs/05_sample_data.md](docs/05_sample_data.md) | Real sample rows and a reconstructed discussion |
 | [docs/06_filtering.md](docs/06_filtering.md) | Sustainability keywords, text cleaning, selection tiers, outputs |
+| [docs/07_topics.md](docs/07_topics.md) | Topic modeling (BERTopic) on keyword-hit passages: unit, settings, outputs, labelling |
 | [docs/worklog.md](docs/worklog.md) | Dated log of what was done |

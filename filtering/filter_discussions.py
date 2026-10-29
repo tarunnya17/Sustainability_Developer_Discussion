@@ -55,6 +55,25 @@ def find_hits(text, terms):
     return out
 
 
+def build_texts(items, comments, boilerplate_min=20):
+    """One row per human text: item title, item body, each comment (bots skipped), with a cleaned copy.
+    Returns (texts, boilerplate). Also used by topics/, so both stages see exactly the same text."""
+    human_items = items[~is_bot(items)]
+    human_comments = comments[~is_bot(comments)]
+    texts = pd.concat([
+        pd.DataFrame({"item_number": human_items["item_number"], "source": "title", "comment_id": pd.NA,
+                      "comment_kind": pd.NA, "author": human_items["author"], "raw": human_items["title"]}),
+        pd.DataFrame({"item_number": human_items["item_number"], "source": "body", "comment_id": pd.NA,
+                      "comment_kind": pd.NA, "author": human_items["author"], "raw": human_items["body"]}),
+        pd.DataFrame({"item_number": human_comments["item_number"], "source": "comment",
+                      "comment_id": human_comments["comment_id"], "comment_kind": human_comments["comment_kind"],
+                      "author": human_comments["author"], "raw": human_comments["body"]}),
+    ], ignore_index=True)
+    boilerplate = find_boilerplate(texts["raw"], boilerplate_min)
+    texts["text"] = [clean(t, boilerplate) for t in texts["raw"]]
+    return texts, boilerplate
+
+
 def assign_tier(strong, weak):
     """strong / weak: sets of groups that have at least one strong / weak hit in the episode."""
     has_core_strong = bool(strong & set(CORE))
@@ -90,22 +109,10 @@ def main():
     items = pd.read_csv(table_dir / "items.csv")
     comments = pd.read_csv(table_dir / "comments.csv", dtype={"parent_id": "Int64", "review_id": "Int64", "line": "Int64"})
 
-    # ---- 1. one row per text to search: item title, item body, each comment (humans only) ----
+    # ---- 1-2. one row per text to search (title, body, each comment; humans only), cleaned ----
+    texts, boilerplate = build_texts(items, comments, args.boilerplate_min)
     human_items = items[~is_bot(items)]
     human_comments = comments[~is_bot(comments)]
-    texts = pd.concat([
-        pd.DataFrame({"item_number": human_items["item_number"], "source": "title", "comment_id": pd.NA,
-                      "comment_kind": pd.NA, "author": human_items["author"], "raw": human_items["title"]}),
-        pd.DataFrame({"item_number": human_items["item_number"], "source": "body", "comment_id": pd.NA,
-                      "comment_kind": pd.NA, "author": human_items["author"], "raw": human_items["body"]}),
-        pd.DataFrame({"item_number": human_comments["item_number"], "source": "comment",
-                      "comment_id": human_comments["comment_id"], "comment_kind": human_comments["comment_kind"],
-                      "author": human_comments["author"], "raw": human_comments["body"]}),
-    ], ignore_index=True)
-
-    # ---- 2. clean ----
-    boilerplate = find_boilerplate(texts["raw"], args.boilerplate_min)
-    texts["text"] = [clean(t, boilerplate) for t in texts["raw"]]
     print(f"texts: {len(texts)} ({len(items) - len(human_items)} bot items and "
           f"{len(comments) - len(human_comments)} bot comments skipped)")
     print(f"boilerplate lines removed: {len(boilerplate)}")
